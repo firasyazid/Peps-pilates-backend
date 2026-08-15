@@ -24,7 +24,7 @@ router.get("/planning", async (req, res) => {
         $lte: endOfNextWeek.toDate(),
       }
     })
-      .populate("cours", "name description duration intensityLevel")
+      .populate("cours", "name description duration intensityLevel image")
       .populate("coach", "name bio expertise")
       .sort({ date: 1, startTime: 1 }); // Sort by date then time
 
