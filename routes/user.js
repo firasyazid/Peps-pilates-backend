@@ -103,6 +103,38 @@ router.post("/inscription", authLimiter, async (req, res) => {
       return res.status(400).send("The user could not be created.");
     }
 
+    // Best-effort: a failed welcome email shouldn't fail the signup itself.
+    try {
+      const isEnglish = savedUser.languagePreference === "en";
+      const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
+      sendSmtpEmail.subject = isEnglish
+        ? "Welcome to Peps Pilates Studio"
+        : "Bienvenue chez Peps Pilates Studio";
+
+      const bodyContent = isEnglish
+        ? `
+          <h2 style="color: #2c3e50;">Hi ${savedUser.fullname},</h2>
+          <p style="font-size: 16px;">Welcome to Peps Pilates Studio! Your account has been created successfully.</p>
+          <p style="font-size: 16px;">You can now log in to browse our classes, book sessions with our coaches, and manage your subscriptions.</p>
+        `
+        : `
+          <h2 style="color: #2c3e50;">Bonjour ${savedUser.fullname},</h2>
+          <p style="font-size: 16px;">Bienvenue chez Peps Pilates Studio ! Votre compte a été créé avec succès.</p>
+          <p style="font-size: 16px;">Vous pouvez dès à présent vous connecter pour découvrir nos cours, réserver vos séances avec nos coachs et gérer vos abonnements.</p>
+        `;
+
+      sendSmtpEmail.htmlContent = getEmailTemplate(sendSmtpEmail.subject, bodyContent);
+      sendSmtpEmail.sender = {
+        name: process.env.SENDER_NAME || "Peps pilate studio",
+        email: process.env.SENDER_EMAIL || "noreply@pilatesbackend.com",
+      };
+      sendSmtpEmail.to = [{ email: savedUser.email, name: savedUser.fullname }];
+
+      await apiInstance.sendTransacEmail(sendSmtpEmail);
+    } catch (emailError) {
+      console.error("Erreur lors de l'envoi de l'email de bienvenue:", emailError);
+    }
+
     res.status(201).send({
       id: savedUser.id,
       fullname: savedUser.fullname,
