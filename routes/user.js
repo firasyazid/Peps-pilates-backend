@@ -15,9 +15,9 @@ require("dotenv/config");
 
 // rate limiting for auth routes
 const authLimiter = rateLimit({
-  windowMs: 5 * 60 * 1000, // 5 minutes
-  max: 5, // Limit each IP to 5 requests per `windowMs`
-  message: "Trop de tentatives de connexion depuis cette adresse IP, veuillez réessayer après 5 minutes",
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 10, // Limit each IP to 10 requests per `windowMs`
+  message: "Trop de tentatives de connexion depuis cette adresse IP, veuillez réessayer après 1 minute",
   standardHeaders: true,
   legacyHeaders: false,
 });
