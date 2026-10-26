@@ -5,6 +5,7 @@ const { Booking } = require("../models/booking");
 const { User } = require("../models/user");
 const SibApiV3Sdk = require('@sendinblue/client');
 const { getEmailTemplate } = require("../utils/emailTemplate");
+const { hasValidAbonnement } = require("../utils/abonnementEligibility");
 require("dotenv/config");
 
 // Configure Brevo (Sendinblue) API for waitlist email notifications
@@ -254,20 +255,11 @@ router.post("/", async (req, res) => {
     }
 
     // Vérifier l'abonnement valide (catégorie + expiration + sessions restantes)
-    const now = new Date();
-    const courseCategoryId = scheduledSession.cours?.category?._id;
-    const hasValidAbonnement = user.abonnement.some(entry => {
-      if (entry.statut !== "payé") return false;
-      if (entry.expirationDate && new Date(entry.expirationDate) < now) return false;
-      const planCategory = entry.abonnement?.category;
-      if (!planCategory) return true;
-      if (!courseCategoryId) return true;
-      return planCategory.toString() === courseCategoryId.toString();
-    });
+    const abonnementCovers = hasValidAbonnement(user, scheduledSession);
 
     let bookingStatus = "non payé";
 
-    if (hasValidAbonnement && user.sessionCount > 0) {
+    if (abonnementCovers && user.sessionCount > 0) {
       user.sessionCount -= 1;
       await user.save();
       bookingStatus = "payé";
@@ -336,18 +328,7 @@ router.post("/reserver-sessions", async (req, res) => {
     }
 
     //  Vérifier l'abonnement valide (catégorie + expiration)
-    const now = new Date();
-    const courseCategoryId = session.cours?.category?._id;
-    const hasValidAbonnement = user.abonnement.some(entry => {
-      if (entry.statut !== "payé") return false;
-      if (entry.expirationDate && new Date(entry.expirationDate) < now) return false;
-      const planCategory = entry.abonnement?.category;
-      if (!planCategory) return true;
-      if (!courseCategoryId) return true;
-      return planCategory.toString() === courseCategoryId.toString();
-    });
-
-    const willPay = hasValidAbonnement && user.sessionCount > 0;
+    const willPay = hasValidAbonnement(user, session) && user.sessionCount > 0;
 
     if (willPay) {
       // Atomically claim a paid slot: the $expr condition and the $inc happen as a single

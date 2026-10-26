@@ -6,6 +6,87 @@ const { Coach } = require("../models/coach");
 const { Booking } = require("../models/booking");
 const moment = require("moment");
 
+// POST /duplicate-week - Copy a week of sessions to the following week.
+//
+// Body (all optional):
+//   from:   any date inside the source week, "YYYY-MM-DD" (default: this week)
+//   dryRun: true to get the plan back without writing anything
+//
+// Copies the schedule only — name, cours, coach, start/end time, maxCapacity —
+// with the date shifted 7 days. currentCapacity stays 0 and no bookings are
+// copied, so the new week is empty. Sessions that already exist in the target
+// week with the same date + startTime + cours are skipped, so calling this
+// twice cannot create doubles.
+//
+// Declared before "/:id" on purpose: Express matches in order, and a route
+// placed after it would be swallowed by the id parameter.
+router.post("/duplicate-week", async (req, res) => {
+  try {
+    const { from, dryRun } = req.body || {};
+
+    if (from && !moment(from, "YYYY-MM-DD", true).isValid()) {
+      return res.status(400).json({ message: "`from` must be a date like 2026-10-19." });
+    }
+
+    const sourceStart = (from ? moment(from, "YYYY-MM-DD") : moment()).startOf("isoWeek");
+    const sourceEnd = sourceStart.clone().endOf("isoWeek");
+    const targetStart = sourceStart.clone().add(1, "week");
+    const targetEnd = targetStart.clone().endOf("isoWeek");
+
+    const source = await ScheduledSession.find({
+      date: { $gte: sourceStart.toDate(), $lte: sourceEnd.toDate() },
+    }).sort({ date: 1, startTime: 1 });
+
+    const existing = await ScheduledSession.find({
+      date: { $gte: targetStart.toDate(), $lte: targetEnd.toDate() },
+    });
+
+    const keyOf = (date, startTime, cours) =>
+      [moment(date).format("YYYY-MM-DD"), startTime, String(cours)].join("|");
+    const taken = new Set(existing.map((s) => keyOf(s.date, s.startTime, s.cours)));
+
+    const toCreate = [];
+    let skipped = 0;
+
+    for (const session of source) {
+      const date = moment(session.date).add(1, "week").toDate();
+      const key = keyOf(date, session.startTime, session.cours);
+
+      if (taken.has(key)) {
+        skipped += 1;
+        continue;
+      }
+
+      taken.add(key);
+      toCreate.push({
+        name: session.name,
+        cours: session.cours,
+        coach: session.coach,
+        date,
+        startTime: session.startTime,
+        endTime: session.endTime,
+        maxCapacity: session.maxCapacity,
+        // currentCapacity omitted -> defaults to 0; bookings are never copied
+      });
+    }
+
+    const created = dryRun ? [] : await ScheduledSession.insertMany(toCreate);
+
+    return res.status(dryRun ? 200 : 201).json({
+      dryRun: Boolean(dryRun),
+      sourceWeek: { from: sourceStart.format("YYYY-MM-DD"), to: sourceEnd.format("YYYY-MM-DD") },
+      targetWeek: { from: targetStart.format("YYYY-MM-DD"), to: targetEnd.format("YYYY-MM-DD") },
+      found: source.length,
+      skipped,
+      created: dryRun ? toCreate.length : created.length,
+      sessions: dryRun ? toCreate : created,
+    });
+  } catch (error) {
+    console.error("Error duplicating week:", error);
+    return res.status(500).send("Internal Server Error");
+  }
+});
+
 // GET /planning - Get scheduled sessions for the current and next week
 router.get("/planning", async (req, res) => {
   try {

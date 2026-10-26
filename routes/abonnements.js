@@ -4,10 +4,34 @@ const { Abonnement } = require("../models/abonnements");
 const { Category } = require("../models/categories");
 const upload = require("../middleware/upload");
 
+/**
+ * `categories` arrives from the dashboard's FormData either as a repeated
+ * field (-> array) or as one comma-joined string, so accept both and hand back
+ * a clean list of ids. Returns [] when nothing was sent, which the model reads
+ * as "every category".
+ */
+const parseCategories = (value) => {
+  if (value === undefined) return undefined;
+  const raw = Array.isArray(value) ? value : String(value).split(",");
+  return [...new Set(raw.map((id) => String(id).trim()).filter(Boolean))];
+};
+
+/** Rejects the request when any id is not a real category. */
+const findUnknownCategory = async (ids) => {
+  for (const id of ids) {
+    const exists = await Category.findById(id).catch(() => null);
+    if (!exists) return id;
+  }
+  return null;
+};
+
 // Get all abonnements
 router.get("/", async (req, res) => {
   try {
-    const abonnements = await Abonnement.find().populate("category", "name").sort({ createdAt: -1 });
+    const abonnements = await Abonnement.find()
+      .populate("category", "name")
+      .populate("categories", "name")
+      .sort({ createdAt: -1 });
     res.status(200).json(abonnements);
   } catch (error) {
     res.status(500).json({ success: false, message: "Erreur lors de la récupération des abonnements", error });
@@ -17,7 +41,9 @@ router.get("/", async (req, res) => {
 // Get a single abonnement by ID
 router.get("/:id", async (req, res) => {
   try {
-    const abonnement = await Abonnement.findById(req.params.id).populate("category", "name");
+    const abonnement = await Abonnement.findById(req.params.id)
+      .populate("category", "name")
+      .populate("categories", "name");
     if (!abonnement) {
       return res.status(404).json({ success: false, message: "Abonnement non trouvé" });
     }
@@ -44,6 +70,16 @@ router.post("/", upload.single("image"), async (req, res) => {
       }
     }
 
+    // Which categories the plan pays for; empty = all of them.
+    const categories = parseCategories(req.body.categories) ?? [];
+    const unknownCategory = await findUnknownCategory(categories);
+    if (unknownCategory) {
+      return res.status(404).json({
+        success: false,
+        message: `La catégorie ${unknownCategory} n'existe pas`,
+      });
+    }
+
      let imagePath = "";
     if (req.file) {
       imagePath = req.file.path;
@@ -55,11 +91,13 @@ router.post("/", upload.single("image"), async (req, res) => {
       duration,
       price,
       category: category || null,
+      categories,
       image: imagePath || "",
     });
 
      const savedAbonnement = await abonnement.save();
     await savedAbonnement.populate("category", "name");
+    await savedAbonnement.populate("categories", "name");
     res.status(201).json({ success: true, data: savedAbonnement });
   } catch (error) {
     console.error("Error creating abonnement:", error);
@@ -107,6 +145,19 @@ router.put("/:abonnementId", upload.single("image"), async (req, res) => {
       abonnement.category = null; // all categories
     }
 
+    // Left out of the request = keep what the plan already covers.
+    const categories = parseCategories(req.body.categories);
+    if (categories !== undefined) {
+      const unknownCategory = await findUnknownCategory(categories);
+      if (unknownCategory) {
+        return res.status(404).json({
+          success: false,
+          message: `La catégorie ${unknownCategory} n'existe pas`,
+        });
+      }
+      abonnement.categories = categories;
+    }
+
     // Update only the provided fields
     if (name) {
       abonnement.name = name;
@@ -131,6 +182,7 @@ router.put("/:abonnementId", upload.single("image"), async (req, res) => {
     // Save the updated abonnement
     await abonnement.save();
     await abonnement.populate("category", "name");
+    await abonnement.populate("categories", "name");
     res.status(200).send(abonnement);
   } catch (error) {
     console.error("Error updating abonnement:", error);
