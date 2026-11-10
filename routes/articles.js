@@ -41,12 +41,13 @@ router.post("/", upload.fields([{ name: "image" }, { name: "video" }]), async (r
 
 // GET /api/articles - Get all articles
 router.get(`/`, async (req, res) => {
-  const userList = await Article.find();
-
-  if (!userList) {
-    res.status(500).json({ success: false });
+  try {
+    const userList = await Article.find();
+    return res.status(200).send(userList);
+  } catch (error) {
+    console.error("Error fetching articles:", error);
+    return res.status(500).json({ success: false });
   }
-  res.status(200).send(userList);
 });
 
 

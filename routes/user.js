@@ -151,23 +151,29 @@ router.post("/inscription", authLimiter, async (req, res) => {
 });
 
 router.get(`/`, async (req, res) => {
-  const userList = await User.find().select("-passwordHash").sort({ _id: -1 });
-
-  if (!userList) {
-    res.status(500).json({ success: false });
+  try {
+    const userList = await User.find().select("-passwordHash").sort({ _id: -1 });
+    return res.status(200).send(userList);
+  } catch (error) {
+    console.error("Error fetching users:", error);
+    return res.status(500).json({ success: false });
   }
-  res.status(200).send(userList);
 });
 
 router.get("/:id", async (req, res) => {
-  const user = await User.findById(req.params.id).select("-passwordHash");
+  try {
+    const user = await User.findById(req.params.id).select("-passwordHash");
 
-  if (!user) {
-    res
-      .status(500)
-      .json({ message: "The user with the given ID was not found." });
+    if (!user) {
+      return res
+        .status(404)
+        .json({ message: "The user with the given ID was not found." });
+    }
+    return res.status(200).send(user);
+  } catch (error) {
+    console.error("Error fetching user:", error);
+    return res.status(500).json({ message: "Error fetching user" });
   }
-  res.status(200).send(user);
 });
 
 router.put("/:id", async (req, res) => {
